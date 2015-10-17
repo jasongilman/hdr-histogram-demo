@@ -17,7 +17,7 @@
          :body "[\"An internal error occurred\"]"}))))
 
 ;; A Component that represents the API to a web application.
-(defrecord WebApi
+(defrecord JettyServer
   [
    ;; The port the application listens
    port
@@ -35,20 +35,20 @@
 
   c/Lifecycle
   (start
-    [api]
+    [this]
     (let [ring-handler (-> (routes-fn app)
                            exception-handler
                            handler/site)
           jetty (jetty/run-jetty ring-handler {:port port :join? false})]
       (println "Jetty running on port" port)
-      (assoc api :jetty jetty)))
+      (assoc this :jetty jetty)))
 
   (stop
-    [api]
+    [this]
     (when jetty (.stop jetty))
-    (dissoc api :jetty)))
+    (dissoc this :jetty)))
 
 (defn create-web-api
   "Creates an instance of the api component."
   [port routes-fn]
-  (map->WebApi {:port port :routes-fn routes-fn}))
+  (map->JettyServer {:port port :routes-fn routes-fn}))
