@@ -18,10 +18,14 @@
             (GET "/slow" []
                  (perform-request pm 1000))
             (GET "/medium" []
-                 (perform-request pm 100))
+                 (perform-request pm 10))
             (GET "/fast" []
                  (perform-request pm 1)))
-   (GET "/percentile-distribution" []
-        {:status 200
-         :body (p/get-percentile-distribution pm)})
+   (context "/metrics" []
+            (POST "/reset" []
+                  (p/reset pm)
+                  {:status 200})
+            (GET "/percentile-distribution" []
+                 {:status 200
+                  :body (p/get-percentile-distribution pm)}))
    (route/not-found "Not Found")))

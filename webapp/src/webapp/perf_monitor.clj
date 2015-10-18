@@ -10,40 +10,55 @@
   "Measures the performance of the body in the current histogram and returns the
   result of the body."
   [pm & body]
-  `(let [latency-ch# (:latency-ch ~pm)
+  `(let [cmd-req-ch# (:cmd-req-ch ~pm)
          start# (System/currentTimeMillis)
          result# (do ~@body)]
-     (a/>!! latency-ch# (- (System/currentTimeMillis) start#))
+     (a/>!! cmd-req-ch# {:cmd :record-latency
+                         :latency (- (System/currentTimeMillis) start#)})
      result#))
 
 (defn get-percentile-distribution
   "Returns the percentile distribution as a string from the histogram"
-  [{:keys [histogram-req-ch]}]
-  (let [read-ch (a/chan)]
-    (a/>!! histogram-req-ch read-ch)
-    (a/<!! read-ch)))
+  [{:keys [cmd-req-ch]}]
+  (let [response-ch (a/chan)]
+    (a/>!! cmd-req-ch {:cmd :get-percentile-distribution
+                       :response-ch response-ch})
+    (a/<!! response-ch)))
+
+(defn reset
+  "Clears any recorded latencies"
+  [{:keys [cmd-req-ch]}]
+  (a/>!! cmd-req-ch {:cmd :reset}))
+
+(defmulti process-request
+  (fn [histogram request]
+    (:cmd request)))
+
+(defmethod process-request :record-latency
+  [^Histogram histogram {:keys [^long latency]}]
+  (.recordValue histogram latency))
+
+(defmethod process-request :get-percentile-distribution
+  [^Histogram histogram {:keys [response-ch]}]
+  (let [baos (ByteArrayOutputStream.)
+        _ (.outputPercentileDistribution
+           histogram (PrintStream. baos) 1.0)
+        s (.toString baos "UTF-8")]
+    (a/>!! response-ch s)))
+
+(defmethod process-request :reset
+  [^Histogram histogram _]
+  (.reset histogram))
 
 (defn- start-monitor-thread
-  [{:keys [latency-ch histogram-req-ch ^Histogram histogram]}]
+  [{:keys [cmd-req-ch histogram]}]
   (println "Starting monitor thread")
   (a/thread
    (try
      (loop []
-       (let [[val read-ch] (a/alts!! [latency-ch histogram-req-ch])]
-         (when (and val read-ch)
-           (condp = read-ch
-             latency-ch
-             (.recordValue histogram ^long val)
-
-             histogram-req-ch
-             (let [baos (ByteArrayOutputStream.)
-                   _ (.outputPercentileDistribution
-                      histogram (PrintStream. baos) 1.0)
-                   s (.toString baos "UTF-8")]
-               (a/>!! val s))
-
-             (println "Unrecognized channel use to read value:" (pr-str val)))
-           (recur))))
+       (when-let [request (a/<!! cmd-req-ch)]
+         (process-request histogram request)
+         (recur)))
      (catch Exception e
        (println "Unexpected exception from monitor thread")
        (.printStackTrace e)))
@@ -61,11 +76,8 @@
 
 (defrecord PerformanceMonitor
   [
-   ;; A channel containing latency measurements to record
-   latency-ch
-
-   ;; A channel of requests to get the current histogram numbers
-   histogram-req-ch
+   ;; A channel of requests of different kinds of commands
+   cmd-req-ch
 
    ;; The channel returned for the thread listening on the other channels.
    monitor-thread-ch
@@ -78,21 +90,18 @@
   (start
     [this]
     (let [this (-> this
-                   (assoc :latency-ch (a/chan 10))
-                   (assoc :histogram-req-ch (a/chan 1))
+                   (assoc :cmd-req-ch (a/chan 10))
                    (assoc :histogram (create-histogram)))
           monitor-thread-ch (start-monitor-thread this)]
       (assoc this :monitor-thread-ch monitor-thread-ch)))
 
   (stop
     [this]
-    (a/close! latency-ch)
-    (a/close! histogram-req-ch)
+    (a/close! cmd-req-ch)
     ;; Wait for thread to finish
     (a/<!! monitor-thread-ch)
     (assoc this
-           :latency-ch nil
-           :histogram-req-ch nil
+           :cmd-req-ch nil
            :monitor-thread-ch nil
            :histogram nil)))
 
