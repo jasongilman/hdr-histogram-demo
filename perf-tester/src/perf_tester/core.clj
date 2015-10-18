@@ -1,9 +1,11 @@
 (ns perf-tester.core
+  "Runs a performance test of the web app."
   (:require [clj-http.client :as h])
   (:import org.HdrHistogram.Histogram
            java.io.PrintStream))
 
 (defn- create-histogram
+  "Creates an instance of the HDR Histogram"
   ^Histogram []
   (Histogram.
    ;; highest trackable value. We're concerned with the ms level only
@@ -14,27 +16,30 @@
    3))
 
 (defn measure-http-request
+  "Fetches the given URL and records the latency. Expected start time is the
+  time the request was expected to start to avoid coordinated omission."
   [^Histogram hdr expected-start-time url]
   (h/get url)
   (.recordValue hdr (- (System/currentTimeMillis) expected-start-time)))
 
-; expected-start-time = test-start-time + req-num * interval
-; latency = end-time - expected-start-time
 (defn perform-run
+  "Runs a test on the current thread. Makes the given number of requests trying
+  to send a request every interval milliseconds."
   [{:keys [num-requests interval]}]
   (let [h (create-histogram)
+        ;; Capture the time this run started
         start-time (System/currentTimeMillis)]
     (doseq
      [n (range num-requests)
+      ;; Calculate the expected start time for this request. It will have fallen
+      ;; behind if earlier requests took more than interval ms.
       :let [expected-start-time (+ start-time (* n interval))
-            ;; Figure out if we're ahead of schedule
+            ;; Determine how long we need to wait to make the request.
             ahead-by (- expected-start-time (System/currentTimeMillis))]]
      (do
-       (if (> ahead-by 0)
-         (do
-          ;  (println "Ahead by" ahead-by ". sleeping")
-           (Thread/sleep ahead-by))
-         #_(println "Behind by" ahead-by))
+       ;; Wait until it's time to make the request.
+       (when (> ahead-by 0)
+         (Thread/sleep ahead-by))
 
        (measure-http-request
         h
@@ -80,9 +85,8 @@
 
 
 (comment
-
- ;; Simulate
- ;; 2 concurrent requests every 1 ms - total time 1000 ms
+ ;; Examples of running tests.
+ ;; These can be evaluated in the REPL to kick off a test.
 
  (def test-future
    (future (run-test {:num-threads 1 :num-requests 200 :interval 20
@@ -95,8 +99,6 @@
  (def test-future
    (future (run-test {:num-threads 10 :num-requests 500 :interval 30
                       :run-name "10_30"})))
-
- (perform-run default-options)
 
 
 

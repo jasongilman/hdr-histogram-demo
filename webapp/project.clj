@@ -1,5 +1,5 @@
 (defproject webapp "0.1.0-SNAPSHOT"
-  :description "FIXME: write description"
+  :description "A simple web application demonstrating HDR histogram."
   :url "https://github.com/jasongilman/hdr-histogram-demo"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
@@ -13,6 +13,6 @@
   :profiles {:dev {:source-paths ["dev" "src" "test"]
                    :dependencies [[org.clojure/tools.namespace "0.2.11"]]}
    ;; TODO specify main
-  ;  :uberjar {:main mm.message-store.main
+  ;  :uberjar {:main webapp.main
   ;            :aot :all}
    })
